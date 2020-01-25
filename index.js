@@ -7,7 +7,7 @@ import sleep from 'await-sleep';
 const item = {
     name: "HOTEL",
     type: "sheet",
-    guid: "Kd3tvQCxrCpJjwcw",
+    guid: "GJKh3RTPRcwJcYWK",
 };
 
 createExportTask(item, config.Path);
