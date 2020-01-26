@@ -11,7 +11,6 @@ cp config.example.js config.js
 ```js
 export const config = {
     Cookie: 'xxx', // 从浏览器中获取石墨文档的 Cookie
-    Path: 'files', // 存放导出文档的位置
 };
 ```
 
@@ -24,7 +23,7 @@ yarn # or npm install
 运行
 
 ```shell
-node index.js
+node test.js
 ```
 
 ## 依赖

@@ -1,79 +1,89 @@
 import axios from 'axios';
-import { config } from './config.js';
-import Path from 'path';
 import download from 'download';
-import sleep from 'await-sleep';
+import fs from 'fs';
+import xlsx from 'xlsx';
 
-const item = {
-    name: "HOTEL",
-    type: "sheet",
-    guid: "GJKh3RTPRcwJcYWK",
-};
+async function downloadExcel(item, cookie, tmpPath) {
+    let type = 'xlsx';
 
-createExportTask(item, config.Path);
+    const url = 'https://shimo.im/lizard-api/files/' + item.guid + '/export';
 
-async function createExportTask(item, basePath = '') {
-    try {
-        let type = '';
-        const name = replaceBadChar(item.name);
-        if (item.type == 'newdoc' || item.type == 'document') {
-            type = 'docx';
-        } else if (item.type == 'sheet' || item.type == 'mosheet' || item.type == 'spreadsheet') {
-            type = 'xlsx';
-        } else if (item.type == 'slide') {
-            type = 'pptx';
-        } else if (item.type == 'mindmap') {
-            const response = await axios.get('https://shimo.im/lizard-api/files/' + item.guid + '?contentUrl=true', {
-                headers: {
-                    Cookie: config.Cookie,
-                    Referer: 'https://shimo.im/folder/123',
+    const response = await axios.get(url, {
+        params: {
+            type: type,
+            file: item.guid,
+            returnJson: '1',
+            name: item.name,
+            isAsync: '0'
+        },
+        headers: {
+            Cookie: cookie,
+            Referer: 'https://shimo.im/folder/123',
+        }
+    });
+
+    if (!response.data.redirectUrl) {
+        throw new Error(item.name + ' failed, error: ', response.data);
+    }
+
+    return download(response.data.redirectUrl).then(data => {
+        fs.writeFileSync(tmpPath+item.name+'.xlsx', data);
+    });
+}
+
+// TODO: 以下三个函数目前均只支持 1-26 列
+function getCellID(x, y) {
+    return String.fromCharCode(y+64)+x;
+}
+function getMaxCol(ref) {
+    let arr = ref.split(":");
+    return arr[1].charCodeAt()-64;
+}
+function getMaxRow(ref) {
+    let arr = ref.split(":");
+    return arr[1].replace(/[^0-9]/ig, "");
+}
+
+function readRows(rows, worksheet, sheetName, maxCol, maxRow, excelConfig) {
+    for (let i = excelConfig.StartRow; i <= maxRow; i++) {
+        let row = [sheetName];
+        for (let j = excelConfig.StartCol; j <= maxCol; j++) {
+            let cellID = getCellID(i, j);
+            let cell = worksheet[cellID];
+            if (!cell) {
+                if (j == excelConfig.StartCol){
+                    return;
                 }
-            });
-
-            if (!response.data.contentUrl) {
-                console.error(item.name, response.data);
-                return;
+                row.push('');
+            } else {
+                row.push(cell.v);
             }
-
-            let url = 'https://shimo.im/api/mindmap/exports?url=' + encodeURIComponent(response.data.contentUrl) + '&format=xmind&name=' + encodeURIComponent(name);
-            // console.log(url, Path.join(config.Path, basePath));
-            await download(url, basePath);
-            return;
-        } else {
-            console.log('unsupport type: ' + item.type);
-            return;
         }
-
-        const url = 'https://shimo.im/lizard-api/files/' + item.guid + '/export';
-
-        const response = await axios.get(url, {
-            params: {
-                type: type,
-                file: item.guid,
-                returnJson: '1',
-                name: name,
-                isAsync: '0'
-            },
-            headers: {
-                Cookie: config.Cookie,
-                Referer: 'https://shimo.im/folder/123',
-            }
-        });
-
-        // console.log(name, response.data)
-        // console.log(response.data.redirectUrl, Path.join(config.Path, basePath));
-        if (!response.data.redirectUrl) {
-            console.error(item.name + ' failed, error: ', response.data);
-            return;
-        }
-        await download(response.data.redirectUrl, basePath);
-    } catch (error) {
-        console.error(item.name + ' failed, error: ' + error.message);
+        rows.push(row);
     }
 }
 
-function replaceBadChar(fileName) {
-    // 去掉文件名中的无效字符,如 \ / : * ? " < > | 
-    fileName = fileName.replace(/[\'\"\\\/\b\f\n\r\t]/g, '_');
-    return fileName;
-}
+export const shimo2csv = async function (item, cookie, excelConfig) {
+    const tmpPath = "./tmp/";
+    if (!fs.existsSync(tmpPath)) {
+        fs.mkdirSync(tmpPath);
+    }
+    return downloadExcel(item, cookie, tmpPath).then(() => {
+        let workbook = xlsx.read(tmpPath+item.name+'.xlsx', {type: 'file'});
+        let rows = [];
+
+        workbook.SheetNames.forEach((sheetName) => {
+            let worksheet = workbook.Sheets[sheetName];
+    
+            const range = worksheet['!ref'];
+            const maxRow = getMaxRow(range);
+            let maxCol = getMaxCol(range);
+            maxCol = (maxCol>=excelConfig.ColNum)?maxCol:excelConfig.ColNum;
+            readRows(rows, worksheet, sheetName, maxCol, maxRow,excelConfig);
+        });
+        
+        return new Promise(function(resolve) {
+            resolve(rows);
+        });
+    });
+};
